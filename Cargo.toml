@@ -1,0 +1,21 @@
+[package]
+name = "txdissect"
+version = "0.2.0"
+authors = ["Andrew Useckas <andrew@threatx.io>"]
+
+[dependencies]
+log = "*"
+env_logger = "^0.5"
+libc = "*"
+pcap = "*"
+byteorder = "*"
+num = "*"
+http-muncher = "^0.3"
+nom = "^1.2.4"
+lazy_static = "*"
+flate2 = { version = "0.2", features = ["zlib"], default-features = false }
+docopt = "*"
+serde = "^1.0"
+serde_json = "^1.0"
+serde_derive = "^1.0"
+ring = "*"
