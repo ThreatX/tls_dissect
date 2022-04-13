@@ -1,5 +1,5 @@
 use super::*;
-use nom::{be_u16, be_u32, be_u8, IResult};
+use nom::{be_u16, be_u8, IResult};
 use ring;
 use std::collections::HashMap;
 use tracker::parsers::be_u24;
@@ -145,17 +145,17 @@ fn tls_extensions<'a>(
             35 => value!(TlsExtensionType::SessionTicketTls) |
             13172 => value!(TlsExtensionType::NextProtocolNegotiation) |
             65281 => value!(TlsExtensionType::RenegotiationInfo) |
-            26 ... 0xffff => value!(TlsExtensionType::Unknown)
+            _ => value!(TlsExtensionType::Unknown)
         )) ~
         ext_length: be_u16 ~
         data: take!(ext_length),
         || {
             println!("Extension type: {:?}", ext_type);
             if ext_type != TlsExtensionType::Unknown {
-                let ext = Extension {
+                let ext = ExtensionRawData {
                     data: data
                 };
-                map.insert(ext_type, ext);
+                map.insert(ext_type, Extension::RawData(ext));
             }
             length -= ext_length + 4;
             true
@@ -195,11 +195,12 @@ fn tls_client_hello<'a>(input: &'a [u8], length: u32) -> IResult<&'a [u8], Parse
         extensions_len: opt!(be_u16) ~
         extensions: call!(tls_extensions, extensions_len),
         || {
-            let client_hello = ClientHello {
+            let mut client_hello = ClientHello {
                 tls_version: version,
                 session_id: session_id,
                 extensions: extensions
             };
+            client_hello.process();
             ParserResult::ClientHello(client_hello)
         }
     )
@@ -241,7 +242,7 @@ fn tls_server_hello<'a>(input: &'a [u8], _length: u32) -> IResult<&'a [u8], Pars
 fn ecdhe_named_curve<'a>(
     input: &'a [u8],
     length: u32,
-    cipher_suite: u16,
+    _cipher_suite: u16,
 ) -> IResult<&'a [u8], ParserResult> {
     let result = chain!(input,
         kex_algo: switch!(be_u16,
@@ -252,7 +253,7 @@ fn ecdhe_named_curve<'a>(
         pubkey_len: be_u8 ~
         pubkey: take!(pubkey_len) ~
         sig_len: be_u16 ~
-        sig: take!(sig_len),
+        _sig: take!(sig_len),
         || {
             let params = KexParams::EcdheParams(EcdheParams {
                 algo: kex_algo,
@@ -374,4 +375,95 @@ fn tls_certificate<'a>(input: &'a [u8], length: u32) -> IResult<&'a [u8], Parser
     } else {
         tls_handshake_unimplemented(input, length)
     }
+}
+
+#[inline]
+pub fn ext_server_name<'a>(data: &'a [u8]) -> Option<&str> {
+    let name_type = data[2];
+    if name_type != 0 {
+        warn!("Unrecognized SNI name_type: {}", name_type);
+        return None;
+    }
+
+    let name_length = match conversion::buffer_to_uint::<u16>(&data[3..5]) {
+        Ok(val) => val,
+        Err(err) => {
+            warn!(
+                "Could not convert to u16. Returning None. Buffer: {:?}, Err: {}",
+                data, err
+            );
+            return None;
+        }
+    };
+    let end_pos = 5 + name_length as usize;
+    let name = match str::from_utf8(&data[5..end_pos]) {
+        Ok(val) => val,
+        Err(err) => {
+            warn!("Could not convert from utf8. Returning None. Err: {}", err);
+            return None;
+        }
+    };
+    return Some(name);
+}
+
+#[inline]
+pub fn ext_supported_groups<'a>(data: &'a [u8]) -> Option<Vec<SupportedGroups>> {
+    let length = match conversion::buffer_to_uint::<u16>(&data[0..2]) {
+        Ok(val) => val,
+        Err(err) => {
+            warn!(
+                "Could not convert to u16. Returning None. Buffer: {:?}, Err: {}",
+                data, err
+            );
+            return None;
+        }
+    };
+    let end = 2 + length as usize;
+    let sg: IResult<&[u8], Vec<SupportedGroups>> = many0!(
+        &data[2..end],
+        switch!(be_u16,
+            0x0017 => value!(SupportedGroups::secp256r1) |
+            0x0018 => value!(SupportedGroups::secp384r1) |
+            0x0019 => value!(SupportedGroups::secp521r1) |
+            0x001D => value!(SupportedGroups::x25519) |
+            0x0100 => value!(SupportedGroups::ffdhe2048) |
+            0x0101 => value!(SupportedGroups::ffdhe3072) |
+            0x0102 => value!(SupportedGroups::ffdhe4096) |
+            0x0103 => value!(SupportedGroups::ffdhe6144) |
+            0x0104 => value!(SupportedGroups::ffdhe8192)
+        )
+    );
+    match sg {
+        IResult::Done(_leftover, parser) => return Some(parser),
+        _ => (),
+    }
+    None
+}
+
+pub fn ext_status_request<'a>(data: &'a [u8]) -> Option<StatusRequest> {
+    let result: IResult<&[u8], StatusRequest> = chain!(
+        data,
+        status_type:
+            switch!(be_u8,
+                0x01 => value!(CertificateStatusType::OCSP) |
+                _ => value!(CertificateStatusType::Unknown)
+            ) ~
+        responder_id_list_len: be_u16 ~
+        responder_id_list: take!(responder_id_list_len) ~
+        request_extensions_len: be_u16 ~
+        request_extensions: take!(request_extensions_len),
+        || {
+            StatusRequest {
+                status_type: status_type,
+                responder_id_list: responder_id_list,
+                request_extensions: request_extensions,
+            }
+        }
+    );
+
+    match result {
+        IResult::Done(_leftover, parser) => return Some(parser),
+        _ => (),
+    }
+    None
 }

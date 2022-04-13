@@ -1,6 +1,4 @@
 use super::ParserResult;
-use serde_json::{Map, Value};
-use std::collections::BTreeMap;
 
 lazy_static! {
     static ref EMPTY_VEC: Vec<u8> = Vec::new();

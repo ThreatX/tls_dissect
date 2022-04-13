@@ -1,6 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt};
-use nom;
-use nom::{be_u16, be_u8, digit, space, IResult};
+use nom::{be_u16, be_u8, IResult};
 use protocol::L7Protocol;
 use std::io::Cursor;
 use std::str;
@@ -21,8 +20,7 @@ fn is_vchar(c: u8) -> bool {
     c > 32 && c <= 126
 }
 
-#[inline]
-named!(pub be_u24<&[u8],(u32)>,
+named!(pub be_u24<&[u8],u32>,
     map!(take!(3),|buffer: &[u8]|{
         let mut bytes = [0, 0, 0, 0];
         bytes[1] = buffer[0];

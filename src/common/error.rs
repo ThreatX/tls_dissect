@@ -1,15 +1,15 @@
+use std::error::Error as traitError;
 use std::fmt;
 use std::io;
-use std::error::Error as traitError;
 
 #[derive(Debug)]
 pub enum Error {
-  IoError(io::Error),
-  Underflow,
-  ParsingError,
-  InvalidFormat(&'static str),
-  ConversionError(&'static str),
-  ProtocolUnknown
+    IoError(io::Error),
+    Underflow,
+    ParsingError,
+    InvalidFormat(&'static str),
+    ConversionError(&'static str),
+    ProtocolUnknown,
 }
 
 impl fmt::Display for Error {
@@ -20,12 +20,11 @@ impl fmt::Display for Error {
             Error::ProtocolUnknown => "ProtocolUnknown",
             Error::InvalidFormat(val) => val,
             Error::ConversionError(val) => val,
-            Error::IoError(ref val) => val.description()
+            Error::IoError(ref val) => val.description(),
         };
         write!(f, "{}", description)
     }
 }
-
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {

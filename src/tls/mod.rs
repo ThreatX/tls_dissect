@@ -1,5 +1,5 @@
 use common::conversion;
-use nom::{be_u16, be_u8, IResult};
+use nom::{be_u16, IResult};
 use protocol::{IPv4, TCP};
 use ring;
 use std::collections::HashMap;
@@ -142,6 +142,20 @@ pub enum SigType {
     ECDSA,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+#[allow(non_camel_case_types)]
+pub enum SupportedGroups {
+    secp256r1,
+    secp384r1,
+    secp521r1,
+    x25519,
+    ffdhe2048,
+    ffdhe3072,
+    ffdhe4096,
+    ffdhe6144,
+    ffdhe8192,
+}
+
 #[derive(Debug)]
 pub struct Cipher {
     pub name: &'static str,
@@ -197,8 +211,30 @@ lazy_static! {
 }
 
 #[derive(Debug)]
-pub struct Extension<'a> {
+pub struct ExtensionRawData<'a> {
     data: &'a [u8],
+}
+
+#[derive(Debug)]
+pub enum CertificateStatusType {
+    OCSP,
+    Unknown
+}
+
+#[derive(Debug)]
+pub struct StatusRequest<'a> {
+    status_type: CertificateStatusType,
+    responder_id_list: &'a [u8],
+    request_extensions: &'a [u8],
+}
+
+#[derive(Debug)]
+pub enum Extension<'a> {
+    ServerName(Option<String>),
+    SupportedGroups(Option<Vec<SupportedGroups>>),
+    StatusRequest(Option<StatusRequest<'a>>),
+    RawData(ExtensionRawData<'a>),
+    Null,
 }
 
 #[derive(Debug)]
@@ -209,47 +245,31 @@ pub struct ClientHello<'a> {
 }
 
 impl<'a> ClientHello<'a> {
-    fn ext_server_name(&self) -> Option<&str> {
-        if let Some(ref extensions) = self.extensions {
-            if let Some(sni) = extensions.get(&TlsExtensionType::ServerName) {
-                let length = match conversion::buffer_to_uint::<u16>(&sni.data[0..2]) {
-                    Ok(val) => val,
-                    Err(err) => {
-                        warn!(
-                            "Could not convert to u16. Returning None. Buffer: {:?}, Err: {}",
-                            sni.data, err
-                        );
-                        return None;
+    pub fn process(&mut self) {
+        self.extensions.as_mut().map(|exts| {
+            exts.iter_mut()
+                .map(|(t, ext)| {
+                    if let Extension::RawData(raw) = ext {
+                        let parsed = match t {
+                            TlsExtensionType::ServerName => Extension::ServerName(
+                                parsers::ext_server_name(raw.data).map(|s| s.to_string()),
+                            ),
+                            TlsExtensionType::SupportedGroups => {
+                                Extension::SupportedGroups(parsers::ext_supported_groups(raw.data))
+                            }
+                            TlsExtensionType::StatusRequest => {
+                                Extension::StatusRequest(parsers::ext_status_request(raw.data))
+                            }
+                            _ => Extension::Null,
+                        };
+                        if !matches!(parsed, Extension::Null) {
+                            *ext = parsed;
+                        }
                     }
-                };
-                let name_type = sni.data[2];
-                if name_type != 0 {
-                    warn!("Unrecognized SNI name_type: {}", name_type);
-                    return None;
-                }
-
-                let name_length = match conversion::buffer_to_uint::<u16>(&sni.data[3..5]) {
-                    Ok(val) => val,
-                    Err(err) => {
-                        warn!(
-                            "Could not convert to u16. Returning None. Buffer: {:?}, Err: {}",
-                            sni.data, err
-                        );
-                        return None;
-                    }
-                };
-                let end_pos = 5 + name_length as usize;
-                let name = match str::from_utf8(&sni.data[5..end_pos]) {
-                    Ok(val) => val,
-                    Err(err) => {
-                        warn!("Could not convert from utf8. Returning None. Err: {}", err);
-                        return None;
-                    }
-                };
-                return Some(name);
-            }
-        }
-        None
+                    (t, ext)
+                })
+                .collect::<HashMap<&TlsExtensionType, &mut Extension<'a>>>()
+        });
     }
 }
 
@@ -336,7 +356,7 @@ impl TlsParser {
             crypto: 0x00,
         }
     }
-    pub fn process(&mut self, direction: Direction, ipv4: &IPv4, tcp: &TCP) -> bool {
+    pub fn process(&mut self, _direction: Direction, ipv4: &IPv4, tcp: &TCP) -> bool {
         if let IResult::Done(_, results) = parsers::tls_packet(tcp.payload.as_slice(), self.crypto)
         {
             for result in results {
@@ -353,7 +373,7 @@ impl TlsParser {
                 };
                 if let Some(p) = tls_data.packet {
                     if let ParserResult::ClientHello(ch) = p {
-                        println!("ClientHello: {:?}", ch.ext_server_name());
+                        println!("ClientHello: {:?}", ch);
                     }
                 }
             }
