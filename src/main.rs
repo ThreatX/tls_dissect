@@ -29,7 +29,6 @@ use protocol::{Ethernet, Protocol};
 use std::default::Default;
 use std::env;
 use tracker::Tracker;
-// use txwaf::add_rules_module;
 // use tls::TlsData;
 
 #[derive(Debug, Deserialize)]

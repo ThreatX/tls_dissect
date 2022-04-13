@@ -380,8 +380,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "txdissect"
-version = "0.2.0"
+name = "tls_dissect"
+version = "0.1.0"
 dependencies = [
  "byteorder",
  "docopt",

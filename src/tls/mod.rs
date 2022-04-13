@@ -222,7 +222,6 @@ impl<'a> ClientHello<'a> {
                         return None;
                     }
                 };
-                println!("Len: {:?}\n\n", length);
                 let name_type = sni.data[2];
                 if name_type != 0 {
                     warn!("Unrecognized SNI name_type: {}", name_type);
@@ -247,7 +246,6 @@ impl<'a> ClientHello<'a> {
                         return None;
                     }
                 };
-                println!("Server name: {:?}\n\n", name);
                 return Some(name);
             }
         }
